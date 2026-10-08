@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+// Contract for the Order Service -> Inventory Service gRPC call.
+package inventory;
+
+service InventoryService {
+  rpc CheckInventory (CheckInventoryRequest) returns (CheckInventoryResponse);
+}
+
+message CheckInventoryRequest {
+  string item_id = 1;
+  int32 quantity = 2;
+}
+
+message CheckInventoryResponse {
+  bool available = 1;
+  int32 available_quantity = 2;
+}
