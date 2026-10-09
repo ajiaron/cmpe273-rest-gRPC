@@ -6,7 +6,6 @@ responses plus whether each Order Service process is still alive.
 
 import json
 import os
-import signal
 import socket
 import subprocess
 import sys
@@ -29,7 +28,10 @@ class Service:
         child_env["PYTHONUNBUFFERED"] = "1"
         child_env.update(env)
         self.log_file = log_file
+        self.log_handle = log_file
         self.module = module
+        # start_new_session helps isolate children on Unix; on Windows it just
+        # creates a new process group. Stopping uses terminate/kill either way.
         self.proc = subprocess.Popen(
             [sys.executable, "-m", module],
             cwd=ROOT,
@@ -47,17 +49,18 @@ class Service:
         return self.proc.poll() is None
 
     def stop(self):
-        if self.proc.poll() is not None:
-            return
-        try:
-            os.killpg(self.proc.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            return
-        try:
-            self.proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            os.killpg(self.proc.pid, signal.SIGKILL)
-            self.proc.wait(timeout=3)
+        """Terminate the child process (cross-platform) and release its log file."""
+        if self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait(timeout=3)
+
+        handle = getattr(self, "log_handle", None)
+        if handle is not None and not handle.closed:
+            handle.close()
 
 
 def port_open(port):
@@ -153,7 +156,6 @@ def start_service(module, env, log_dir, name):
     handle = open(log_path, "w", encoding="utf-8")
     service = Service(module, env, handle)
     service.log_path = log_path
-    service.log_handle = handle
     return service
 
 
@@ -222,7 +224,6 @@ def demo_rest(log_dir):
     finally:
         inventory.stop()
         order.stop()
-        order.log_handle.close()
 
 
 def demo_grpc(log_dir):
@@ -291,7 +292,6 @@ def demo_grpc(log_dir):
     finally:
         inventory.stop()
         order.stop()
-        order.log_handle.close()
 
 
 def main():
